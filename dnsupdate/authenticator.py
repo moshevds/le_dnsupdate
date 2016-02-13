@@ -35,6 +35,8 @@ class Authenticator(Plugin):
             help="Path to a JSON file containing the tsig key data (name, algorithm and secret).")
         add("nameserver", metavar="SERVER", default=None,
             help="The nameserver to send updates to.")
+        add("zone", metavar="ZONE", default=None,
+            help="The zone to send updates to.")
 
     def prepare(self):
         if not self.conf("tsigkeyfile"):
@@ -57,14 +59,22 @@ class Authenticator(Plugin):
     def get_chall_pref(self, domain):
         return [DNS01]
 
+    def zone_and_record(self, request_domain, challenge_name):
+        zone = self.conf("zone") if self.conf("zone") else request_domain
+        if challenge_name[0 - len(zone):] != zone:
+            raise errors.PluginError("Domain to verify is not in the zone we can update.")
+        record = challenge_name + '.'
+        return zone, record
+
     def perform(self, achalls):
         return [self._perform_single(achall) for achall in achalls]
 
     def _perform_single(self, achall):
         response, validation = achall.response_and_validation()
+        zone, record = self.zone_and_record(achall.domain, achall.validation_domain_name(achall.domain))
 
-        update = dns.update.Update(achall.domain, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
-        update.add('_acme-challenge', 300, 'TXT', validation.encode('ascii'))
+        update = dns.update.Update(zone, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
+        update.add(record, 300, 'TXT', validation.encode('ascii'))
         dns.query.tcp(update, self.conf('nameserver'))
 
         return response
@@ -74,7 +84,8 @@ class Authenticator(Plugin):
 
     def _cleanup_single(self, achall):
         response, validation = achall.response_and_validation()
+        zone, record = self.zone_and_record(achall.domain, achall.validation_domain_name(achall.domain))
 
-        update = dns.update.Update(achall.domain, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
-        update.delete('_acme-challenge', 'TXT', validation.encode('ascii'))
+        update = dns.update.Update(zone, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
+        update.delete(record, 'TXT', validation.encode('ascii'))
         dns.query.tcp(update, self.conf('nameserver'))
