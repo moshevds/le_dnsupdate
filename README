@@ -1,0 +1,16 @@
+Installation
+------------
+
+$ git clone git@github.com:moshevds/le_dnsupdate.git
+$ cd le_dnsupdate
+$ python setup.py install
+
+How to run
+----------
+
+Save your tsig in a json file that (only) the letsencrypt client can open.
+It expects an object with the members "name", "algorithm" and "secret".
+
+$ letsencrypt --authenticator letsencrypt-dnsupdate:dnsupdate \
+              --letsencrypt-dnsupdate:dnsupdate-tsigkeyfile=/path/to/your/tsigkeyfile \
+              --letsencrypt-dnsupdate:dnsupdate-nameserver=nameserver.example.com
