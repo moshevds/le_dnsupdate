@@ -1,37 +1,84 @@
+"""DNS Update (RFC 2136) plugin."""
+from collections import namedtuple
+from shlex import shlex
+from itertools import takewhile
+import re
+
 from zope.interface import implements, classProvides
-from letsencrypt.plugins.common import Plugin
+import dns
+import dns.tsig
+import dns.tsigkeyring
+
 from letsencrypt.interfaces import IAuthenticator, IPluginFactory
 from letsencrypt import errors
+from letsencrypt.plugins.common import Plugin
 
-from acme.challenges import DNS01
 
-import dns
-import dns.query
-import dns.tsigkeyring
-import dns.tsig
-import dns.update
-import sys
-import json
-import time
+Key = namedtuple('Key', ['ring', 'algorithm'])
+DnsNames = namedtuple('DnsNames', ['domain', 'zone', 'record', 'nameserver'])
 
-keyalgorithms = {
-    'hmac-md5': dns.tsig.HMAC_MD5,
-    'hmac-sha1': dns.tsig.HMAC_SHA1,
-    'hmac-sha224': dns.tsig.HMAC_SHA224,
-    'hmac-sha256': dns.tsig.HMAC_SHA256,
-    'hmac-sha384': dns.tsig.HMAC_SHA384,
-    'hmac-sha512': dns.tsig.HMAC_SHA512
-}
+key_data_regex = re.compile(
+    r'key(.*){\s*algorithm(.*);\s*secret(.*);\s*};', re.MULTILINE | re.DOTALL)
+
+
+def named_conf_key_parse(filename):
+    """Parse a keyfile created by following the ddns-confgen instuctions."""
+    try:
+        with open(filename) as keyfile:
+            key_data = keyfile.read()
+    except IOError:
+        return None
+    key_data = key_data_regex.match(key_data)
+    if key_data is None:
+        return None
+
+    name = key_data.group(1).strip(' "')
+    algorithm = key_data.group(2).strip(' "')
+    secret = key_data.group(3).strip(' "')
+
+    try:
+        ring = dns.tsigkeyring.from_text({name: secret})
+    except:
+        return None
+    algorithm = dns.name.from_text(algorithm)
+    return Key(ring, algorithm)
+
+
+def send_dns_update(dns_names, key, want_record, value):
+    """Send a DNS Update to the nameserver."""
+    update = dns.update.Update(dns_names.zone, "IN", key.ring, key.algorithm)
+    if want_record:
+        update.add(dns_names.record, 300, "TXT", value)
+    else:
+        update.delete(dns_names.record, "TXT", value)
+    dns.query.tcp(update, dns_names.nameserver)
+
+
+def soa_for_name(domain):
+    """Return the best soa record for the domain."""
+    return dns.resolver.query(dns.resolver.zone_for_name(domain), "SOA")
+
 
 class Authenticator(Plugin):
-    implements(IAuthenticator)
+    """DNS Update (RFC 2136) Authenticator.
+
+    This plugin uses RFC 2136 update queries for solving dns-01 challenges and
+    requires access to a named.conf-style key file only. The man page for
+    nsupdate(8) contains extensive documentation about the key file and DNS
+    Update in general.
+    """
     classProvides(IPluginFactory)
+    implements(IAuthenticator)
 
     description = "Let`s Encrypt DNS Update (RFC 2136) Authenticator"
 
+    def __init__(self, *args, **kwargs):
+        super(Authenticator, self).__init__(*args, **kwargs)
+        self.key = None
+
     @classmethod
     def add_parser_arguments(cls, add):
-        add("tsigkeyfile", metavar="FILE", default=None,
+        add("keyfile", metavar="FILE", default=None,
             help="Path to a JSON file containing the tsig key data (name, algorithm and secret).")
         add("nameserver", metavar="SERVER", default=None,
             help="The nameserver to send updates to.")
@@ -39,53 +86,52 @@ class Authenticator(Plugin):
             help="The zone to send updates to.")
 
     def prepare(self):
-        if not self.conf("tsigkeyfile"):
-            raise errors.PluginError("The tsigkeyfile argument is required to perform dns updates.")
-        if not self.conf("nameserver"):
-            raise errors.PluginError("The nameserver argument is required to perform dns updates.")
-        tsig_data = json.load(open(self.conf("tsigkeyfile")))
-        if 'name' not in tsig_data:
-            raise errors.PluginError("The key name is not specified in the tsigkey file.")
-        if 'algorithm' not in tsig_data:
-            raise errors.PluginError("The key algorithm is not specified in the tsigkey file.")
-        if 'secret' not in tsig_data:
-            raise errors.PluginError("The key secret is not specified in the tsigkey file.")
-        self.keyring = dns.tsigkeyring.from_text({tsig_data['name']: tsig_data['secret']})
-        self.keyalgorithm = keyalgorithms[tsig_data['algorithm']]
+        """Prepare the plugin."""
+        if not self.conf("keyfile"):
+            raise errors.MisconfigurationError(
+                "The keyfile argument is required to perform dns updates.")
+        self.key = named_conf_key_parse(self.conf("keyfile"))
 
     def more_info(self):
-        return """Use DNS Update (RFC 2136), also sometimes called dyndns, to perform the identification challenge."""
+        """Human-readable string to help the user."""
+        return ("Use DNS Update (RFC 2136), also sometimes called dyndns, to "
+                "perform the identification challenge.")
 
-    def get_chall_pref(self, domain):
-        return [DNS01]
+    def get_chall_pref(self, _):
+        """Return list of challenge preferences."""
+        return []
 
-    def zone_and_record(self, request_domain, challenge_name):
-        zone = self.conf("zone") if self.conf("zone") else request_domain
-        if challenge_name[0 - len(zone):] != zone:
-            raise errors.PluginError("Domain to verify is not in the zone we can update.")
-        record = challenge_name + '.'
-        return zone, record
 
-    def perform(self, achalls):
-        return [self._perform_single(achall) for achall in achalls]
+    def _one_update(self, want_record, achall):
+        domain = dns.name.from_text(achall.domain)
 
-    def _perform_single(self, achall):
+        zone = self.conf("zone")
+        if zone is None:
+            soa_answer = soa_for_name(domain)
+            zone = soa_answer.qname
+        else:
+            zone = dns.name.from_text(zone)
+            soa_answer = soa_for_name(zone)
+
+        record = dns.name.from_text("_acme_challenge", domain)
+
+        nameserver = self.conf("nameserver")
+        print nameserver
+        if nameserver is None:
+            nameserver = soa_answer[0].mname
+        else:
+            nameserver = dns.name.from_text(nameserver)
+
+        dns_names = DnsNames(domain, zone, record, nameserver)
+
         response, validation = achall.response_and_validation()
-        zone, record = self.zone_and_record(achall.domain, achall.validation_domain_name(achall.domain))
-
-        update = dns.update.Update(zone, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
-        update.add(record, 300, 'TXT', validation.encode('ascii'))
-        dns.query.tcp(update, self.conf('nameserver'))
-
+        send_dns_update(dns_names, self.key, want_record, validation)
         return response
 
+    def perform(self, achalls):
+        """Perform the given challenge."""
+        return [self._one_update(True, achall) for achall in achalls]
+
     def cleanup(self, achalls):
-        return [self._cleanup_single(achall) for achall in achalls]
-
-    def _cleanup_single(self, achall):
-        response, validation = achall.response_and_validation()
-        zone, record = self.zone_and_record(achall.domain, achall.validation_domain_name(achall.domain))
-
-        update = dns.update.Update(zone, keyring=self.keyring, keyalgorithm=self.keyalgorithm)
-        update.delete(record, 'TXT', validation.encode('ascii'))
-        dns.query.tcp(update, self.conf('nameserver'))
+        """Revert changes and shutdown after challenges complete."""
+        return [self._one_update(False, achall) for achall in achalls]
