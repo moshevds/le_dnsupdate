@@ -8,6 +8,7 @@ from zope.interface import implements, classProvides
 import dns
 import dns.tsig
 import dns.tsigkeyring
+import dns.update
 
 from certbot.interfaces import IAuthenticator, IPluginFactory
 from certbot import errors
@@ -46,7 +47,7 @@ def named_conf_key_parse(filename):
 
 def send_dns_update(dns_names, key, want_record, value):
     """Send a DNS Update to the nameserver."""
-    update = dns.update.Update(dns_names.zone, "IN", key.ring, key.algorithm)
+    update = dns.update.Update(dns_names.zone, "IN", key.ring, keyalgorithm=key.algorithm)
     if want_record:
         update.add(dns_names.record, 300, "TXT", value)
     else:
