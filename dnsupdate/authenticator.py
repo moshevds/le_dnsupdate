@@ -10,6 +10,8 @@ import dns.tsig
 import dns.tsigkeyring
 import dns.update
 
+from acme import challenges
+
 from certbot.interfaces import IAuthenticator, IPluginFactory
 from certbot import errors
 from certbot.plugins.common import Plugin
@@ -98,9 +100,9 @@ class Authenticator(Plugin):
         return ("Use DNS Update (RFC 2136), also sometimes called dyndns, to "
                 "perform the identification challenge.")
 
-    def get_chall_pref(self, _):
+    def get_chall_pref(self, domain):
         """Return list of challenge preferences."""
-        return []
+        return [challenges.DNS01]
 
 
     def _one_update(self, want_record, achall):
