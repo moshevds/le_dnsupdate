@@ -3,6 +3,7 @@ from collections import namedtuple
 from shlex import shlex
 from itertools import takewhile
 import re
+import time
 
 from zope.interface import implements, classProvides
 import dns
@@ -47,7 +48,7 @@ def named_conf_key_parse(filename):
     return Key(ring, algorithm)
 
 
-def send_dns_update(dns_names, key, want_record, value):
+def send_dns_update(dns_names, key, want_record, value, delay):
     """Send a DNS Update to the nameserver."""
     update = dns.update.Update(dns_names.zone, "IN", key.ring, keyalgorithm=key.algorithm)
     if want_record:
@@ -55,6 +56,8 @@ def send_dns_update(dns_names, key, want_record, value):
     else:
         update.delete(dns_names.record, "TXT", value)
     dns.query.tcp(update, dns_names.nameserver)
+    if want_record:
+        time.sleep(delay)
 
 
 def soa_for_name(domain):
@@ -87,6 +90,8 @@ class Authenticator(Plugin):
             help="The nameserver to send updates to (optional -- normally auto-detected).")
         add("zone", metavar="ZONE", default=None,
             help="The zone to send updates to (optional -- normally auto-detected).")
+        add("delay", metavar="DELAY", default=10,
+            help="Number of seconds to delay while DNS updates are propagating before attempting authentication.")
 
     def prepare(self):
         """Prepare the plugin."""
@@ -126,7 +131,8 @@ class Authenticator(Plugin):
         dns_names = DnsNames(domain, zone, record, nameserver)
 
         response, validation = achall.response_and_validation()
-        send_dns_update(dns_names, self.key, want_record, validation)
+        delay = float(self.conf("delay"))
+        send_dns_update(dns_names, self.key, want_record, validation, delay)
         return response
 
     def perform(self, achalls):
