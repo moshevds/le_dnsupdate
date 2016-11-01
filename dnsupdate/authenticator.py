@@ -116,7 +116,8 @@ class Authenticator(Plugin):
             zone = dns.name.from_text(zone)
             soa_answer = soa_for_name(zone)
 
-        record = dns.name.from_text("_acme_challenge", domain)
+        validation_domain_name = achall.validation_domain_name(achall.domain)
+        record = dns.name.from_text(validation_domain_name)
 
         nameserver = self.conf("nameserver")
         print nameserver
