@@ -1,16 +1,27 @@
 Installation
 ------------
 
-$ git clone git@github.com:moshevds/le_dnsupdate.git
+First:
+$ git clone https://github.com/moshevds/le_dnsupdate.git
 $ cd le_dnsupdate
+
+Then, to install:
 $ python setup.py install
+
+But if you are using certbot-auto, then install this way instead:
+$ ~/.local/share/letsencrypt/bin/python setup.py install
 
 How to run
 ----------
 
-Save your tsig in a json file that (only) the letsencrypt client can open.
-It expects an object with the members "name", "algorithm" and "secret".
+Save your tsig key in a file (using bind's named.conf key statement grammar)
+that (only) the certbot client can open.  The key can be generated with
+ddns-confgen.
 
-$ letsencrypt --authenticator letsencrypt-dnsupdate:dnsupdate \
-              --letsencrypt-dnsupdate:dnsupdate-tsigkeyfile=/path/to/your/tsigkeyfile \
-              --letsencrypt-dnsupdate:dnsupdate-nameserver=nameserver.example.com
+Then to run:
+$ certbot -a letsencrypt-dnsupdate:dnsupdate \
+          --letsencrypt-dnsupdate:dnsupdate-keyfile=/path/to/your/keyfile
+
+If using certbot-auto, then include the --no-self-upgrade option.  Whenever
+certbot-auto is allowed to upgrade, it will wipe out the installation of the
+letsencrypt-dnsupdate package, requiring that it be manually installed again.
