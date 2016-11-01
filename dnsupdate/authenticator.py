@@ -9,9 +9,9 @@ import dns
 import dns.tsig
 import dns.tsigkeyring
 
-from letsencrypt.interfaces import IAuthenticator, IPluginFactory
-from letsencrypt import errors
-from letsencrypt.plugins.common import Plugin
+from certbot.interfaces import IAuthenticator, IPluginFactory
+from certbot import errors
+from certbot.plugins.common import Plugin
 
 
 Key = namedtuple('Key', ['ring', 'algorithm'])

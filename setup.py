@@ -15,9 +15,9 @@ setup(name="letsencrypt_dnsupdate",
     classifiers = ['Development Status :: 3 - Alpha'],
 
     zip_safe = False,
-    install_requires = ['letsencrypt', 'dnspython'],
+    install_requires = ['certbot', 'dnspython'],
     entry_points = {
-        'letsencrypt.plugins': [
+        'certbot.plugins': [
             'dnsupdate = dnsupdate:Authenticator'
         ]
     }
