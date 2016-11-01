@@ -82,11 +82,11 @@ class Authenticator(Plugin):
     @classmethod
     def add_parser_arguments(cls, add):
         add("keyfile", metavar="FILE", default=None,
-            help="Path to a JSON file containing the tsig key data (name, algorithm and secret).")
+            help="Path to a file with a key (expressed using bind's named.conf key statement grammar) generated with ddns-confgen.")
         add("nameserver", metavar="SERVER", default=None,
-            help="The nameserver to send updates to.")
+            help="The nameserver to send updates to (optional -- normally auto-detected).")
         add("zone", metavar="ZONE", default=None,
-            help="The zone to send updates to.")
+            help="The zone to send updates to (optional -- normally auto-detected).")
 
     def prepare(self):
         """Prepare the plugin."""
