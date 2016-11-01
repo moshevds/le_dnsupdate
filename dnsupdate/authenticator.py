@@ -120,11 +120,8 @@ class Authenticator(Plugin):
         record = dns.name.from_text(validation_domain_name)
 
         nameserver = self.conf("nameserver")
-        print nameserver
         if nameserver is None:
-            nameserver = soa_answer[0].mname
-        else:
-            nameserver = dns.name.from_text(nameserver)
+            nameserver = soa_answer[0].mname.to_text()
 
         dns_names = DnsNames(domain, zone, record, nameserver)
 
